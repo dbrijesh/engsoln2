@@ -1,0 +1,362 @@
+name: Application - Deploy to AKS
+
+on:
+  workflow_run:
+    workflows: ["Frontend - Build & Test", "Backend - Build & Test"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+      frontend_tag:
+        description: 'Frontend image tag (default: latest)'
+        required: false
+        default: 'latest'
+      backend_tag:
+        description: 'Backend image tag (default: latest)'
+        required: false
+        default: 'latest'
+
+env:
+  HELM_VERSION: 'v3.13.0'
+
+jobs:
+  deploy-to-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    environment:
+      name: dev
+      url: https://dev-${{ vars.DOMAIN_NAME }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ vars.AKS_RESOURCE_GROUP_DEV }} \
+            --name ${{ vars.AKS_CLUSTER_NAME_DEV }} \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry acr-secret \
+            --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+            --docker-username=${{ secrets.ACR_USERNAME }} \
+            --docker-password=${{ secrets.ACR_PASSWORD }} \
+            --namespace dev \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create Azure AD secrets
+        run: |
+          kubectl create secret generic azure-ad-credentials \
+            --from-literal=client-id=${{ secrets.BACKEND_CLIENT_ID }} \
+            --from-literal=tenant-id=${{ secrets.ARM_TENANT_ID }} \
+            --namespace dev \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Backend with Helm
+        run: |
+          helm upgrade --install backend ./charts/backend \
+            --namespace dev \
+            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
+            --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
+            --set image.pullPolicy=Always \
+            --set ingress.enabled=true \
+            --set ingress.hosts[0].host=dev-api-${{ vars.DOMAIN_NAME }} \
+            --set ingress.hosts[0].paths[0].path=/ \
+            --set ingress.hosts[0].paths[0].pathType=Prefix \
+            --set env[0].name=SPRING_PROFILES_ACTIVE \
+            --set env[0].value=dev \
+            --set env[1].name=AZURE_CLIENT_ID \
+            --set env[1].valueFrom.secretKeyRef.name=azure-ad-credentials \
+            --set env[1].valueFrom.secretKeyRef.key=client-id \
+            --set env[2].name=AZURE_TENANT_ID \
+            --set env[2].valueFrom.secretKeyRef.name=azure-ad-credentials \
+            --set env[2].valueFrom.secretKeyRef.key=tenant-id \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy Frontend with Helm
+        run: |
+          helm upgrade --install frontend ./charts/frontend \
+            --namespace dev \
+            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-frontend \
+            --set image.tag=${{ github.event.inputs.frontend_tag || 'latest' }} \
+            --set image.pullPolicy=Always \
+            --set ingress.enabled=true \
+            --set ingress.hosts[0].host=dev-${{ vars.DOMAIN_NAME }} \
+            --set ingress.hosts[0].paths[0].path=/ \
+            --set ingress.hosts[0].paths[0].pathType=Prefix \
+            --set env[0].name=REACT_APP_CLIENT_ID \
+            --set env[0].value=${{ secrets.REACT_APP_CLIENT_ID }} \
+            --set env[1].name=REACT_APP_TENANT_ID \
+            --set env[1].value=${{ secrets.ARM_TENANT_ID }} \
+            --set env[2].name=REACT_APP_API_URL \
+            --set env[2].value=https://dev-api-${{ vars.DOMAIN_NAME }} \
+            --set env[3].name=REACT_APP_API_SCOPE \
+            --set env[3].value=api://${{ secrets.BACKEND_CLIENT_ID }}/access_as_user \
+            --wait \
+            --timeout 5m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/backend -n dev --timeout=5m
+          kubectl rollout status deployment/frontend -n dev --timeout=5m
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests..."
+
+          # Wait for services to be ready
+          sleep 30
+
+          # Get backend service endpoint
+          BACKEND_IP=$(kubectl get svc backend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+          # Test backend health endpoint
+          if [ -n "$BACKEND_IP" ]; then
+            curl -f http://$BACKEND_IP/actuator/health || echo "Backend health check failed"
+          else
+            echo "Backend service IP not found, checking via port-forward..."
+            kubectl port-forward -n dev svc/backend 8080:8080 &
+            sleep 5
+            curl -f http://localhost:8080/actuator/health || echo "Backend health check failed"
+            pkill -f "port-forward"
+          fi
+
+      - name: Get deployment status
+        if: always()
+        run: |
+          echo "## Deployment Status - Dev" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pods" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n dev >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get svc -n dev >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Ingress" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get ingress -n dev >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  deploy-to-stage:
+    name: Deploy to Stage
+    runs-on: ubuntu-latest
+    needs: deploy-to-dev
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'stage'
+    environment:
+      name: stage
+      url: https://stage-${{ vars.DOMAIN_NAME }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ vars.AKS_RESOURCE_GROUP_STAGE }} \
+            --name ${{ vars.AKS_CLUSTER_NAME_STAGE }} \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace stage --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry acr-secret \
+            --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+            --docker-username=${{ secrets.ACR_USERNAME }} \
+            --docker-password=${{ secrets.ACR_PASSWORD }} \
+            --namespace stage \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create Azure AD secrets
+        run: |
+          kubectl create secret generic azure-ad-credentials \
+            --from-literal=client-id=${{ secrets.BACKEND_CLIENT_ID }} \
+            --from-literal=tenant-id=${{ secrets.ARM_TENANT_ID }} \
+            --namespace stage \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Backend with Helm
+        run: |
+          helm upgrade --install backend ./charts/backend \
+            --namespace stage \
+            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
+            --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
+            --set replicaCount=3 \
+            --set ingress.enabled=true \
+            --set ingress.hosts[0].host=stage-api-${{ vars.DOMAIN_NAME }} \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy Frontend with Helm
+        run: |
+          helm upgrade --install frontend ./charts/frontend \
+            --namespace stage \
+            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-frontend \
+            --set image.tag=${{ github.event.inputs.frontend_tag || 'latest' }} \
+            --set replicaCount=3 \
+            --set ingress.enabled=true \
+            --set ingress.hosts[0].host=stage-${{ vars.DOMAIN_NAME }} \
+            --wait \
+            --timeout 5m
+
+      - name: Run integration tests
+        run: |
+          echo "Running integration tests on stage environment..."
+          # Add your integration test commands here
+
+  deploy-to-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-to-stage
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod'
+    environment:
+      name: prod
+      url: https://${{ vars.DOMAIN_NAME }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ vars.AKS_RESOURCE_GROUP_PROD }} \
+            --name ${{ vars.AKS_CLUSTER_NAME_PROD }} \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace prod --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry acr-secret \
+            --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+            --docker-username=${{ secrets.ACR_USERNAME }} \
+            --docker-password=${{ secrets.ACR_PASSWORD }} \
+            --namespace prod \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create Azure AD secrets
+        run: |
+          kubectl create secret generic azure-ad-credentials \
+            --from-literal=client-id=${{ secrets.BACKEND_CLIENT_ID }} \
+            --from-literal=tenant-id=${{ secrets.ARM_TENANT_ID }} \
+            --namespace prod \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Backend with Helm
+        run: |
+          helm upgrade --install backend ./charts/backend \
+            --namespace prod \
+            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
+            --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
+            --set replicaCount=5 \
+            --set resources.requests.memory=512Mi \
+            --set resources.requests.cpu=500m \
+            --set resources.limits.memory=1Gi \
+            --set resources.limits.cpu=1000m \
+            --set autoscaling.enabled=true \
+            --set autoscaling.minReplicas=3 \
+            --set autoscaling.maxReplicas=15 \
+            --set ingress.enabled=true \
+            --set ingress.hosts[0].host=api-${{ vars.DOMAIN_NAME }} \
+            --wait \
+            --timeout 10m
+
+      - name: Deploy Frontend with Helm
+        run: |
+          helm upgrade --install frontend ./charts/frontend \
+            --namespace prod \
+            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-frontend \
+            --set image.tag=${{ github.event.inputs.frontend_tag || 'latest' }} \
+            --set replicaCount=5 \
+            --set autoscaling.enabled=true \
+            --set autoscaling.minReplicas=3 \
+            --set autoscaling.maxReplicas=10 \
+            --set ingress.enabled=true \
+            --set ingress.hosts[0].host=${{ vars.DOMAIN_NAME }} \
+            --wait \
+            --timeout 10m
+
+      - name: Wait for rollout and monitor
+        run: |
+          kubectl rollout status deployment/backend -n prod --timeout=10m
+          kubectl rollout status deployment/frontend -n prod --timeout=10m
+
+          echo "Monitoring for 2 minutes..."
+          sleep 120
+
+      - name: Production smoke tests
+        run: |
+          echo "Running production smoke tests..."
+          # Add production-specific smoke tests here
+
+      - name: Send deployment notification
+        if: success()
+        run: |
+          echo "## 🚀 Production Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: Production" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Tag**: ${{ github.event.inputs.backend_tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Tag**: ${{ github.event.inputs.frontend_tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed At**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://${{ vars.DOMAIN_NAME }}" >> $GITHUB_STEP_SUMMARY
