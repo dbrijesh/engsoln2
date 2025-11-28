@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<!-- Checkstyle suppressions for generated and test code -->
+<suppressions>
+    <!-- Suppress checks for generated code -->
+    <suppress checks=".*" files="[\\/]target[\\/]generated-sources[\\/]"/>
+
+    <!-- Suppress checks for test resources -->
+    <suppress checks=".*" files="[\\/]src[\\/]test[\\/]resources[\\/]"/>
+
+    <!-- Relax some checks for test code -->
+    <suppress checks="JavadocMethod" files="[\\/]src[\\/]test[\\/]"/>
+    <suppress checks="JavadocType" files="[\\/]src[\\/]test[\\/]"/>
+    <suppress checks="MagicNumber" files="[\\/]src[\\/]test[\\/]"/>
+
+    <!-- Suppress for DTOs and entities (often have many fields) -->
+    <suppress checks="VisibilityModifier" files="[\\/]dto[\\/].*\.java$"/>
+    <suppress checks="VisibilityModifier" files="[\\/]entity[\\/].*\.java$"/>
+</suppressions>

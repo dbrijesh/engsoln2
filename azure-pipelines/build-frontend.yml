@@ -1,0 +1,141 @@
+# Azure DevOps pipeline for frontend build, test, and publish
+name: Frontend-CI-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - app/frontend/**
+      - azure-pipelines/build-frontend.yml
+
+variables:
+  - name: imageName
+    value: 'frontend'
+  - name: dockerfilePath
+    value: 'app/frontend/Dockerfile'
+  - name: buildContext
+    value: 'app/frontend'
+  - name: acrServiceConnection
+    value: 'acr-service-connection'  # Update with your service connection name
+  - name: acrName
+    value: 'aksstarter.azurecr.io'  # Update with your ACR name
+  - name: trivyVersion
+    value: '0.48.0'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Build
+    displayName: 'Build and Test'
+    jobs:
+      - job: BuildTest
+        displayName: 'Build, Test, and Scan'
+        steps:
+          - task: NodeTool@0
+            displayName: 'Install Node.js'
+            inputs:
+              versionSpec: '18.x'
+
+          - script: |
+              cd app/frontend
+              npm ci
+            displayName: 'Install dependencies'
+
+          - script: |
+              cd app/frontend
+              npm run lint || true
+            displayName: 'Run linter'
+
+          - script: |
+              cd app/frontend
+              npm test
+            displayName: 'Run unit tests'
+
+          - task: PublishTestResults@2
+            displayName: 'Publish test results'
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'app/frontend/coverage/junit.xml'
+              failTaskOnFailedTests: true
+            condition: succeededOrFailed()
+
+          - task: PublishCodeCoverageResults@1
+            displayName: 'Publish code coverage'
+            inputs:
+              codeCoverageTool: 'Cobertura'
+              summaryFileLocation: 'app/frontend/coverage/cobertura-coverage.xml'
+            condition: succeededOrFailed()
+
+          # SonarQube scan
+          - task: SonarQubePrepare@5
+            displayName: 'Prepare SonarQube analysis'
+            inputs:
+              SonarQube: 'sonarqube-service-connection'
+              scannerMode: 'CLI'
+              configMode: 'file'
+              configFile: 'app/frontend/sonar-project.properties'
+
+          - task: SonarQubeAnalyze@5
+            displayName: 'Run SonarQube analysis'
+
+          - task: SonarQubePublish@5
+            displayName: 'Publish SonarQube results'
+            inputs:
+              pollingTimeoutSec: '300'
+
+  - stage: Docker
+    displayName: 'Build and Scan Docker Image'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: DockerBuild
+        displayName: 'Build Docker Image'
+        steps:
+          - task: Docker@2
+            displayName: 'Build Docker image'
+            inputs:
+              command: 'build'
+              repository: '$(imageName)'
+              dockerfile: '$(dockerfilePath)'
+              buildContext: '$(buildContext)'
+              tags: |
+                $(Build.BuildId)
+                latest
+
+          # Install Trivy
+          - script: |
+              wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+              echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+              sudo apt-get update
+              sudo apt-get install trivy
+            displayName: 'Install Trivy'
+
+          # Scan with Trivy
+          - script: |
+              trivy image --exit-code 0 --severity HIGH,CRITICAL --format json --output trivy-results.json $(imageName):$(Build.BuildId)
+              trivy image --exit-code 1 --severity CRITICAL --format table $(imageName):$(Build.BuildId)
+            displayName: 'Scan image with Trivy'
+            continueOnError: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Trivy scan results'
+            inputs:
+              PathtoPublish: 'trivy-results.json'
+              ArtifactName: 'trivy-scan-results'
+            condition: succeededOrFailed()
+
+          # Push to ACR
+          - task: Docker@2
+            displayName: 'Push image to ACR'
+            inputs:
+              command: 'push'
+              repository: '$(acrName)/$(imageName)'
+              dockerfile: '$(dockerfilePath)'
+              containerRegistry: '$(acrServiceConnection)'
+              tags: |
+                $(Build.BuildId)
+                latest

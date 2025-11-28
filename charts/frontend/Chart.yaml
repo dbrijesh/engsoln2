@@ -1,0 +1,15 @@
+# Helm chart metadata for frontend application
+apiVersion: v2
+name: aks-starter-frontend
+description: React SPA frontend for AKS Starter Kit
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - react
+  - spa
+  - azure
+  - aks
+maintainers:
+  - name: AKS Starter Team
+    email: team@example.com

@@ -1,0 +1,185 @@
+# Azure DevOps pipeline for infrastructure deployment
+name: Infra-Deploy-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - infra/**
+      - azure-pipelines/infra-deploy.yml
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - stage
+      - prod
+
+variables:
+  - name: terraformVersion
+    value: '1.5.7'
+  - name: azureServiceConnection
+    value: 'azure-service-connection'
+  - name: tfstateResourceGroup
+    value: 'terraform-state-rg'
+  - name: tfstateStorageAccount
+    value: 'tfstateaksstarter'
+  - name: tfstateContainer
+    value: 'tfstate'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Validate
+    displayName: 'Validate Terraform'
+    jobs:
+      - job: TerraformValidate
+        displayName: 'Validate and Lint'
+        steps:
+          - task: TerraformInstaller@0
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: '$(terraformVersion)'
+
+          # Install tflint
+          - script: |
+              curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+            displayName: 'Install tflint'
+
+          # Install tfsec
+          - script: |
+              wget -qO - https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64 > tfsec
+              chmod +x tfsec
+              sudo mv tfsec /usr/local/bin/
+            displayName: 'Install tfsec'
+
+          - script: |
+              cd infra
+              terraform fmt -check -recursive
+            displayName: 'Terraform format check'
+            continueOnError: true
+
+          - script: |
+              cd infra
+              terraform init -backend=false
+              terraform validate
+            displayName: 'Terraform validate'
+
+          - script: |
+              cd infra
+              tflint --init
+              tflint --recursive
+            displayName: 'Run tflint'
+            continueOnError: true
+
+          - script: |
+              cd infra
+              tfsec . --format json --out tfsec-results.json || true
+              tfsec .
+            displayName: 'Run tfsec security scan'
+            continueOnError: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish tfsec results'
+            inputs:
+              PathtoPublish: 'infra/tfsec-results.json'
+              ArtifactName: 'tfsec-results'
+            condition: succeededOrFailed()
+
+  - stage: Plan
+    displayName: 'Terraform Plan - ${{ parameters.environment }}'
+    dependsOn: Validate
+    condition: succeeded()
+    jobs:
+      - job: TerraformPlan
+        displayName: 'Plan Infrastructure'
+        steps:
+          - task: TerraformInstaller@0
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: '$(terraformVersion)'
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Init'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                cd infra/envs/${{ parameters.environment }}
+                terraform init \
+                  -backend-config="resource_group_name=$(tfstateResourceGroup)" \
+                  -backend-config="storage_account_name=$(tfstateStorageAccount)" \
+                  -backend-config="container_name=$(tfstateContainer)" \
+                  -backend-config="key=${{ parameters.environment }}.terraform.tfstate"
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Plan'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                cd infra/envs/${{ parameters.environment }}
+                terraform plan -out=tfplan
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Terraform plan'
+            inputs:
+              PathtoPublish: 'infra/envs/${{ parameters.environment }}/tfplan'
+              ArtifactName: 'terraform-plan'
+
+  - stage: Apply
+    displayName: 'Terraform Apply - ${{ parameters.environment }}'
+    dependsOn: Plan
+    condition: succeeded()
+    jobs:
+      - deployment: TerraformApply
+        displayName: 'Apply Infrastructure'
+        environment: '${{ parameters.environment }}'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: TerraformInstaller@0
+                  displayName: 'Install Terraform'
+                  inputs:
+                    terraformVersion: '$(terraformVersion)'
+
+                - task: DownloadBuildArtifacts@0
+                  displayName: 'Download Terraform plan'
+                  inputs:
+                    artifactName: 'terraform-plan'
+                    downloadPath: '$(System.DefaultWorkingDirectory)'
+
+                - task: AzureCLI@2
+                  displayName: 'Terraform Apply'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      cd infra/envs/${{ parameters.environment }}
+                      terraform apply -auto-approve tfplan
+
+                - task: AzureCLI@2
+                  displayName: 'Output Infrastructure Details'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      cd infra/envs/${{ parameters.environment }}
+                      terraform output -json > terraform-outputs.json
+
+                - task: PublishBuildArtifacts@1
+                  displayName: 'Publish Terraform outputs'
+                  inputs:
+                    PathtoPublish: 'infra/envs/${{ parameters.environment }}/terraform-outputs.json'
+                    ArtifactName: 'terraform-outputs'

@@ -1,0 +1,218 @@
+# Azure DevOps release pipeline for deploying applications to AKS
+name: Release-Deploy-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger: none  # Triggered manually or by build pipeline completion
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - stage
+      - prod
+  - name: imageTag
+    displayName: 'Image Tag to Deploy'
+    type: string
+    default: 'latest'
+
+variables:
+  - name: azureServiceConnection
+    value: 'azure-service-connection'
+  - name: aksResourceGroup
+    value: 'aksstarter-${{ parameters.environment }}-rg'
+  - name: aksClusterName
+    value: 'aksstarter-${{ parameters.environment }}-aks'
+  - name: acrName
+    value: 'aksstarter.azurecr.io'
+  - name: namespace
+    value: '${{ parameters.environment }}'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Deploy
+    displayName: 'Deploy to AKS - ${{ parameters.environment }}'
+    jobs:
+      - deployment: DeployApplications
+        displayName: 'Deploy Frontend and Backend'
+        environment: '${{ parameters.environment }}-aks'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: HelmInstaller@1
+                  displayName: 'Install Helm'
+                  inputs:
+                    helmVersionToInstall: 'latest'
+
+                - task: AzureCLI@2
+                  displayName: 'Get AKS credentials'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az aks get-credentials \
+                        --resource-group $(aksResourceGroup) \
+                        --name $(aksClusterName) \
+                        --overwrite-existing
+
+                - task: Kubernetes@1
+                  displayName: 'Create namespace'
+                  inputs:
+                    connectionType: 'Azure Resource Manager'
+                    azureSubscriptionEndpoint: '$(azureServiceConnection)'
+                    azureResourceGroup: '$(aksResourceGroup)'
+                    kubernetesCluster: '$(aksClusterName)'
+                    command: 'apply'
+                    useConfigurationFile: true
+                    inline: |
+                      apiVersion: v1
+                      kind: Namespace
+                      metadata:
+                        name: $(namespace)
+
+                - task: HelmDeploy@0
+                  displayName: 'Deploy Backend with Helm'
+                  inputs:
+                    connectionType: 'Azure Resource Manager'
+                    azureSubscription: '$(azureServiceConnection)'
+                    azureResourceGroup: '$(aksResourceGroup)'
+                    kubernetesCluster: '$(aksClusterName)'
+                    namespace: '$(namespace)'
+                    command: 'upgrade'
+                    chartType: 'FilePath'
+                    chartPath: 'charts/backend'
+                    releaseName: 'backend'
+                    install: true
+                    waitForExecution: true
+                    arguments: '--set image.repository=$(acrName)/backend --set image.tag=${{ parameters.imageTag }}'
+
+                - task: HelmDeploy@0
+                  displayName: 'Deploy Frontend with Helm'
+                  inputs:
+                    connectionType: 'Azure Resource Manager'
+                    azureSubscription: '$(azureServiceConnection)'
+                    azureResourceGroup: '$(aksResourceGroup)'
+                    kubernetesCluster: '$(aksClusterName)'
+                    namespace: '$(namespace)'
+                    command: 'upgrade'
+                    chartType: 'FilePath'
+                    chartPath: 'charts/frontend'
+                    releaseName: 'frontend'
+                    install: true
+                    waitForExecution: true
+                    arguments: '--set image.repository=$(acrName)/frontend --set image.tag=${{ parameters.imageTag }}'
+
+                - script: |
+                    kubectl get all -n $(namespace)
+                  displayName: 'Verify deployment'
+
+  - stage: IntegrationTests
+    displayName: 'Integration Tests'
+    dependsOn: Deploy
+    condition: succeeded()
+    jobs:
+      - job: RunTests
+        displayName: 'Run Integration Tests'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Get AKS credentials'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group $(aksResourceGroup) \
+                  --name $(aksClusterName) \
+                  --overwrite-existing
+
+          - script: |
+              # Get backend service endpoint
+              BACKEND_IP=$(kubectl get svc backend -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+              echo "Backend IP: $BACKEND_IP"
+
+              # Wait for service to be ready
+              sleep 60
+
+              # Test health endpoint
+              curl -f http://$BACKEND_IP:8080/actuator/health || exit 1
+            displayName: 'Test backend health'
+
+          - script: |
+              # Get frontend service endpoint
+              FRONTEND_IP=$(kubectl get svc frontend -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+              echo "Frontend IP: $FRONTEND_IP"
+
+              # Test health endpoint
+              curl -f http://$FRONTEND_IP/health || exit 1
+            displayName: 'Test frontend health'
+
+  - stage: SecurityScan
+    displayName: 'DAST Security Scan'
+    dependsOn: IntegrationTests
+    condition: succeeded()
+    jobs:
+      - job: OWASP_ZAP
+        displayName: 'OWASP ZAP Scan'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Get application URLs'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group $(aksResourceGroup) \
+                  --name $(aksClusterName) \
+                  --overwrite-existing
+
+                BACKEND_IP=$(kubectl get svc backend -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+                FRONTEND_IP=$(kubectl get svc frontend -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+                echo "##vso[task.setvariable variable=BACKEND_URL]http://$BACKEND_IP:8080"
+                echo "##vso[task.setvariable variable=FRONTEND_URL]http://$FRONTEND_IP"
+
+          - script: |
+              docker run -v $(pwd):/zap/wrk/:rw \
+                -t owasp/zap2docker-stable zap-baseline.py \
+                -t $(BACKEND_URL) \
+                -r zap-backend-report.html \
+                -J zap-backend-report.json || true
+            displayName: 'ZAP scan - Backend'
+
+          - script: |
+              docker run -v $(pwd):/zap/wrk/:rw \
+                -t owasp/zap2docker-stable zap-baseline.py \
+                -t $(FRONTEND_URL) \
+                -r zap-frontend-report.html \
+                -J zap-frontend-report.json || true
+            displayName: 'ZAP scan - Frontend'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish ZAP scan results'
+            inputs:
+              PathtoPublish: '.'
+              ArtifactName: 'zap-scan-results'
+              publishLocation: 'Container'
+            condition: succeededOrFailed()
+
+  - stage: PromotionGate
+    displayName: 'Production Promotion Gate'
+    dependsOn: SecurityScan
+    condition: and(succeeded(), eq('${{ parameters.environment }}', 'stage'))
+    jobs:
+      - job: Approval
+        displayName: 'Wait for Approval'
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve production deployment'
+            inputs:
+              instructions: 'Please review test and security scan results before promoting to production'
+              onTimeout: 'reject'

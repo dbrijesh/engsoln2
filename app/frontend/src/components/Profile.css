@@ -1,0 +1,54 @@
+/* Profile page styles */
+.profile-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.profile-container h1 {
+  color: white;
+  font-size: 2.5em;
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.profile-card {
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  margin-bottom: 25px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.profile-card h2 {
+  color: #333;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 10px;
+}
+
+.profile-info p {
+  color: #555;
+  margin: 12px 0;
+  font-size: 1.05em;
+  line-height: 1.6;
+}
+
+.profile-info strong {
+  color: #333;
+  font-weight: 600;
+  display: inline-block;
+  min-width: 150px;
+}
+
+.claims-data {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  overflow-x: auto;
+  color: #333;
+  font-size: 0.9em;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}

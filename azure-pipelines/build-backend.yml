@@ -1,0 +1,185 @@
+# Azure DevOps pipeline for backend build, test, and publish
+name: Backend-CI-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - app/backend/**
+      - azure-pipelines/build-backend.yml
+
+variables:
+  - name: imageName
+    value: 'backend'
+  - name: dockerfilePath
+    value: 'app/backend/Dockerfile'
+  - name: buildContext
+    value: 'app/backend'
+  - name: acrServiceConnection
+    value: 'acr-service-connection'
+  - name: acrName
+    value: 'aksstarter.azurecr.io'
+  - name: mavenOpts
+    value: '-Xmx3072m'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Build
+    displayName: 'Build and Test'
+    jobs:
+      - job: BuildTest
+        displayName: 'Build, Test, and Analyze'
+        steps:
+          # Code quality checks
+          - task: Maven@3
+            displayName: 'Run Checkstyle'
+            inputs:
+              mavenPomFile: 'app/backend/pom.xml'
+              goals: 'checkstyle:check'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.17'
+
+          - task: Maven@3
+            displayName: 'Check code formatting (Spotless)'
+            inputs:
+              mavenPomFile: 'app/backend/pom.xml'
+              goals: 'spotless:check'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.17'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Checkstyle report'
+            inputs:
+              PathtoPublish: 'app/backend/target/site'
+              ArtifactName: 'checkstyle-report'
+            condition: succeededOrFailed()
+
+          - task: Maven@3
+            displayName: 'Maven build and unit tests'
+            inputs:
+              mavenPomFile: 'app/backend/pom.xml'
+              goals: 'clean verify'
+              options: '-DskipITs=true'
+              publishJUnitResults: true
+              testResultsFiles: '**/surefire-reports/TEST-*.xml'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.17'
+              mavenVersionOption: 'Default'
+              mavenOptions: '$(mavenOpts)'
+              mavenAuthenticateFeed: false
+
+          - task: PublishCodeCoverageResults@1
+            displayName: 'Publish code coverage'
+            inputs:
+              codeCoverageTool: 'JaCoCo'
+              summaryFileLocation: 'app/backend/target/site/jacoco/jacoco.xml'
+              reportDirectory: 'app/backend/target/site/jacoco'
+            condition: succeededOrFailed()
+
+          # SonarQube scan
+          - task: SonarQubePrepare@5
+            displayName: 'Prepare SonarQube analysis'
+            inputs:
+              SonarQube: 'sonarqube-service-connection'
+              scannerMode: 'Other'
+              extraProperties: |
+                sonar.projectKey=aks-starter-backend
+                sonar.projectName=AKS Starter Backend
+                sonar.sources=app/backend/src/main/java
+                sonar.tests=app/backend/src/test/java
+                sonar.java.binaries=app/backend/target/classes
+                sonar.coverage.jacoco.xmlReportPaths=app/backend/target/site/jacoco/jacoco.xml
+
+          - task: Maven@3
+            displayName: 'SonarQube analysis'
+            inputs:
+              mavenPomFile: 'app/backend/pom.xml'
+              goals: 'sonar:sonar'
+              options: '-Dsonar.login=$(SONAR_TOKEN)'
+
+          - task: SonarQubePublish@5
+            displayName: 'Publish SonarQube results'
+            inputs:
+              pollingTimeoutSec: '300'
+
+  - stage: IntegrationTests
+    displayName: 'Integration Tests'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: BDDTests
+        displayName: 'Run Cucumber BDD Tests'
+        steps:
+          - task: Maven@3
+            displayName: 'Run integration tests'
+            inputs:
+              mavenPomFile: 'app/backend/pom.xml'
+              goals: 'verify'
+              options: '-DskipUTs=true'
+              publishJUnitResults: true
+              testResultsFiles: '**/failsafe-reports/TEST-*.xml'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Cucumber reports'
+            inputs:
+              PathtoPublish: 'app/backend/target/cucumber-reports'
+              ArtifactName: 'cucumber-reports'
+            condition: succeededOrFailed()
+
+  - stage: Docker
+    displayName: 'Build and Scan Docker Image'
+    dependsOn: IntegrationTests
+    condition: succeeded()
+    jobs:
+      - job: DockerBuild
+        displayName: 'Build Docker Image'
+        steps:
+          - task: Docker@2
+            displayName: 'Build Docker image'
+            inputs:
+              command: 'build'
+              repository: '$(imageName)'
+              dockerfile: '$(dockerfilePath)'
+              buildContext: '$(buildContext)'
+              tags: |
+                $(Build.BuildId)
+                latest
+
+          # Install Trivy
+          - script: |
+              wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+              echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+              sudo apt-get update
+              sudo apt-get install trivy
+            displayName: 'Install Trivy'
+
+          # Scan with Trivy
+          - script: |
+              trivy image --exit-code 0 --severity HIGH,CRITICAL --format json --output trivy-results.json $(imageName):$(Build.BuildId)
+              trivy image --exit-code 1 --severity CRITICAL --format table $(imageName):$(Build.BuildId)
+            displayName: 'Scan image with Trivy'
+            continueOnError: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Trivy scan results'
+            inputs:
+              PathtoPublish: 'trivy-results.json'
+              ArtifactName: 'trivy-scan-results'
+            condition: succeededOrFailed()
+
+          # Push to ACR
+          - task: Docker@2
+            displayName: 'Push image to ACR'
+            inputs:
+              command: 'push'
+              repository: '$(acrName)/$(imageName)'
+              dockerfile: '$(dockerfilePath)'
+              containerRegistry: '$(acrServiceConnection)'
+              tags: |
+                $(Build.BuildId)
+                latest
