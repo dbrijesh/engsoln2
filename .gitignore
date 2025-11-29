@@ -77,3 +77,6 @@
 # Backup files
 **/*.bak
 **/*.backup
+
+# Claude Code
+**/.claude/

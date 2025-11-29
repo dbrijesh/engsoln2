@@ -4,6 +4,13 @@ package com.example.aks.bdd;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.ActiveProfiles;
+
 import io.cucumber.datatable.DataTable;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
@@ -11,11 +18,6 @@ import io.cucumber.java.en.When;
 import io.cucumber.spring.CucumberContextConfiguration;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
-import java.util.List;
-import java.util.Map;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.test.context.ActiveProfiles;
 
 @CucumberContextConfiguration
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -55,8 +57,7 @@ public class UserManagementSteps {
   @Given("a user exists with username {string} and email {string}")
   public void aUserExistsWithUsernameAndEmail(String username, String email) {
     // Create a user for testing
-    String requestBody =
-        String.format("{\"username\":\"%s\",\"email\":\"%s\"}", username, email);
+    String requestBody = String.format("{\"username\":\"%s\",\"email\":\"%s\"}", username, email);
 
     Response createResponse =
         RestAssured.given()
@@ -88,9 +89,7 @@ public class UserManagementSteps {
     String requestBody =
         String.format(
             "{\"username\":\"%s\",\"email\":\"%s\",\"fullName\":\"%s\"}",
-            userDetails.get("username"),
-            userDetails.get("email"),
-            userDetails.get("fullName"));
+            userDetails.get("username"), userDetails.get("email"), userDetails.get("fullName"));
 
     response =
         RestAssured.given().contentType("application/json").body(requestBody).post("/api/users");
@@ -213,10 +212,7 @@ public class UserManagementSteps {
     String actualMessage = response.jsonPath().getString("message");
     assertTrue(
         actualMessage.contains(expectedMessage),
-        "Expected message to contain: "
-            + expectedMessage
-            + " but was: "
-            + actualMessage);
+        "Expected message to contain: " + expectedMessage + " but was: " + actualMessage);
   }
 
   @Then("the field error for {string} should be present")
@@ -224,8 +220,7 @@ public class UserManagementSteps {
     Map<String, String> fieldErrors = response.jsonPath().getMap("fieldErrors");
     assertNotNull(fieldErrors, "Field errors should be present");
     assertTrue(
-        fieldErrors.containsKey(fieldName),
-        "Field error for " + fieldName + " should be present");
+        fieldErrors.containsKey(fieldName), "Field error for " + fieldName + " should be present");
   }
 
   @Then("the user should no longer exist in the database")

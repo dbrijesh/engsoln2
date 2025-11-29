@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class AksStarterApplication {
 
-    public static void main(String[] args) {
-        SpringApplication.run(AksStarterApplication.class, args);
-    }
+  public static void main(String[] args) {
+    SpringApplication.run(AksStarterApplication.class, args);
+  }
 }

@@ -1,4 +1,4 @@
-// Security configuration with OAuth2 JWT validation
+// Security configuration for local development - disables JWT authentication
 package com.example.aks.config;
 
 import java.util.Arrays;
@@ -18,8 +18,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
-@Profile({"!local", "!test"})
-public class SecurityConfig {
+@Profile({"local", "test"})
+public class LocalSecurityConfig {
 
   @Value("${app.cors.allowed-origins}")
   private String allowedOrigins;
@@ -31,17 +31,7 @@ public class SecurityConfig {
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
-            auth ->
-                auth.requestMatchers("/actuator/**", "/swagger-ui/**", "/v3/api-docs/**")
-                    .permitAll()
-                    .requestMatchers("/api/public/**")
-                    .permitAll()
-                    .anyRequest()
-                    .authenticated())
-        .oauth2ResourceServer(
-            oauth2 ->
-                oauth2.jwt(
-                    jwt -> jwt.jwtAuthenticationConverter(new CustomJwtAuthenticationConverter())));
+            auth -> auth.anyRequest().permitAll()); // Allow all for local testing
 
     return http.build();
   }

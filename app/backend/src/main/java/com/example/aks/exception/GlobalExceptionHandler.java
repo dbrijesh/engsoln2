@@ -1,15 +1,11 @@
 // Global exception handler for REST API
 package com.example.aks.exception;
 
-import com.example.aks.dto.ErrorResponse;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.ConstraintViolationException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -23,13 +19,19 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
+import com.example.aks.dto.ErrorResponse;
+import com.example.aks.dto.ValidationErrorResponse;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import lombok.extern.slf4j.Slf4j;
+
 @Slf4j
 @ControllerAdvice
 public class GlobalExceptionHandler {
 
-  /**
-   * Handle validation errors from @Valid annotation on request body.
-   */
+  /** Handle validation errors from @Valid annotation on request body. */
   @ExceptionHandler(MethodArgumentNotValidException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ResponseEntity<ValidationErrorResponse> handleValidationException(
@@ -59,9 +61,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.badRequest().body(response);
   }
 
-  /**
-   * Handle constraint violations from @Validated on method parameters.
-   */
+  /** Handle constraint violations from @Validated on method parameters. */
   @ExceptionHandler(ConstraintViolationException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ResponseEntity<ValidationErrorResponse> handleConstraintViolation(
@@ -88,9 +88,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.badRequest().body(response);
   }
 
-  /**
-   * Handle malformed JSON or invalid request body.
-   */
+  /** Handle malformed JSON or invalid request body. */
   @ExceptionHandler(HttpMessageNotReadableException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(
@@ -108,9 +106,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.badRequest().body(response);
   }
 
-  /**
-   * Handle type mismatch errors (e.g., string instead of integer).
-   */
+  /** Handle type mismatch errors (e.g., string instead of integer). */
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ResponseEntity<ErrorResponse> handleTypeMismatch(
@@ -124,14 +120,13 @@ public class GlobalExceptionHandler {
             ex.getName(), ex.getRequiredType().getSimpleName());
 
     ErrorResponse response =
-        ErrorResponse.create("Type Mismatch", message, HttpStatus.BAD_REQUEST.value(), request.getRequestURI());
+        ErrorResponse.create(
+            "Type Mismatch", message, HttpStatus.BAD_REQUEST.value(), request.getRequestURI());
 
     return ResponseEntity.badRequest().body(response);
   }
 
-  /**
-   * Handle resource not found errors.
-   */
+  /** Handle resource not found errors. */
   @ExceptionHandler(ResourceNotFoundException.class)
   @ResponseStatus(HttpStatus.NOT_FOUND)
   public ResponseEntity<ErrorResponse> handleResourceNotFound(
@@ -141,14 +136,15 @@ public class GlobalExceptionHandler {
 
     ErrorResponse response =
         ErrorResponse.create(
-            "Resource Not Found", ex.getMessage(), HttpStatus.NOT_FOUND.value(), request.getRequestURI());
+            "Resource Not Found",
+            ex.getMessage(),
+            HttpStatus.NOT_FOUND.value(),
+            request.getRequestURI());
 
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
-  /**
-   * Handle business logic exceptions.
-   */
+  /** Handle business logic exceptions. */
   @ExceptionHandler(BusinessException.class)
   @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
   public ResponseEntity<ErrorResponse> handleBusinessException(
@@ -166,9 +162,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
   }
 
-  /**
-   * Handle authentication errors.
-   */
+  /** Handle authentication errors. */
   @ExceptionHandler(BadCredentialsException.class)
   @ResponseStatus(HttpStatus.UNAUTHORIZED)
   public ResponseEntity<ErrorResponse> handleBadCredentials(
@@ -186,9 +180,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
-  /**
-   * Handle authorization errors.
-   */
+  /** Handle authorization errors. */
   @ExceptionHandler(AccessDeniedException.class)
   @ResponseStatus(HttpStatus.FORBIDDEN)
   public ResponseEntity<ErrorResponse> handleAccessDenied(
@@ -206,9 +198,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
-  /**
-   * Handle 404 - endpoint not found.
-   */
+  /** Handle 404 - endpoint not found. */
   @ExceptionHandler(NoHandlerFoundException.class)
   @ResponseStatus(HttpStatus.NOT_FOUND)
   public ResponseEntity<ErrorResponse> handleNoHandlerFound(
@@ -226,9 +216,7 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
-  /**
-   * Handle all other uncaught exceptions.
-   */
+  /** Handle all other uncaught exceptions. */
   @ExceptionHandler(Exception.class)
   @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
   public ResponseEntity<ErrorResponse> handleGenericException(

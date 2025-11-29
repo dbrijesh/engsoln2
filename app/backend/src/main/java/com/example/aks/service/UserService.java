@@ -1,17 +1,20 @@
 // Service layer for User management
 package com.example.aks.service;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.example.aks.dto.CreateUserRequest;
 import com.example.aks.entity.User;
 import com.example.aks.exception.BusinessException;
 import com.example.aks.repository.UserRepository;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service

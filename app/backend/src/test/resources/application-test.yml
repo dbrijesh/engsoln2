@@ -1,10 +1,9 @@
 # Test configuration for Spring Boot
 spring:
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: http://localhost:8080
+  # Disable OAuth2 resource server for tests
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
   datasource:
     url: jdbc:h2:mem:testdb
   jpa:

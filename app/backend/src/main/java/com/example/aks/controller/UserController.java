@@ -1,24 +1,9 @@
 // REST controller for User management with validation examples
 package com.example.aks.controller;
 
-import com.example.aks.dto.CreateUserRequest;
-import com.example.aks.dto.UserResponse;
-import com.example.aks.entity.User;
-import com.example.aks.exception.ResourceNotFoundException;
-import com.example.aks.service.UserService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Min;
 import java.util.List;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -29,6 +14,24 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.example.aks.dto.CreateUserRequest;
+import com.example.aks.dto.UserResponse;
+import com.example.aks.entity.User;
+import com.example.aks.exception.ResourceNotFoundException;
+import com.example.aks.service.UserService;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @RestController
@@ -85,9 +88,7 @@ public class UserController {
     log.info("Fetching user with ID: {}", id);
 
     User user =
-        userService
-            .findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
+        userService.findById(id).orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
 
     return ResponseEntity.ok(mapToResponse(user));
   }

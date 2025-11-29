@@ -1,0 +1,36 @@
+# Local development configuration profile
+# This profile disables Azure AD authentication for local testing
+
+spring:
+  # Disable OAuth2 resource server for local testing
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+
+  # Enable H2 console for local development
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Show SQL queries in console for debugging
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+# Enable debug logging for local development
+logging:
+  level:
+    root: INFO
+    com.example.aks: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.web: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Allow all origins for local CORS
+app:
+  cors:
+    allowed-origins: "http://localhost:3000,http://localhost:3001"
