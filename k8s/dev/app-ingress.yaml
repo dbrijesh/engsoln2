@@ -6,6 +6,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: selfsigned-issuer
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
   ingressClassName: nginx
   tls:
@@ -13,25 +14,25 @@ spec:
   rules:
     - http:
         paths:
-          # Backend actuator endpoints
-          - path: /actuator
-            pathType: Prefix
+          # Backend actuator endpoints (highest priority)
+          - path: /actuator(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: backend
                 port:
                   number: 8080
           # Backend API routes
-          - path: /api
-            pathType: Prefix
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: backend
                 port:
                   number: 8080
-          # Frontend routes (default)
-          - path: /
-            pathType: Prefix
+          # Frontend routes (catch-all, lowest priority)
+          - path: /(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: frontend
