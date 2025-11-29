@@ -1,6 +1,7 @@
 # Spring Boot application configuration
 # Updated: IP-based HTTPS deployment with kubectl and plain Kubernetes manifests
 # Fixed: Increased memory limits to 1Gi for Spring Boot + JPA + Hibernate
+# Fixed: Added /actuator path routing to ingress for health endpoints
 spring:
   application:
     name: aks-starter-backend
