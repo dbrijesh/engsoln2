@@ -129,21 +129,21 @@ jobs:
       - name: Deploy Backend with Helm
         run: |
           # Create temporary values file for environment variables
-          cat > /tmp/backend-values.yaml <<EOF
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: dev
-            - name: AZURE_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: azure-ad-credentials
-                  key: client-id
-            - name: AZURE_TENANT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: azure-ad-credentials
-                  key: tenant-id
-          EOF
+          cat > /tmp/backend-values.yaml <<'EOF'
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: dev
+  - name: AZURE_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: azure-ad-credentials
+        key: client-id
+  - name: AZURE_TENANT_ID
+    valueFrom:
+      secretKeyRef:
+        name: azure-ad-credentials
+        key: tenant-id
+EOF
 
           helm upgrade --install backend ./charts/backend \
             --namespace dev \
