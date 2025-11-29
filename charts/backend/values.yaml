@@ -39,18 +39,16 @@ ingress:
   enabled: true
   className: "nginx"
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/cluster-issuer: "selfsigned-issuer"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-  hosts:
-    - host: api.example.com
-      paths:
-        - path: /api
-          pathType: Prefix
+  hosts: []
+    # For IP-based access, leave hosts empty or set via --set in deployment
+    # Example: --set ingress.hosts[0].host=api.example.com
   tls:
     - secretName: backend-tls
-      hosts:
-        - api.example.com
+      hosts: []
+      # For IP-based TLS, cert-manager will generate cert for the ingress IP
 
 resources:
   limits:

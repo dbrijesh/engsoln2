@@ -7,6 +7,7 @@ on:
       - completed
     branches:
       - main
+      - develop
   workflow_dispatch:
     inputs:
       environment:
@@ -65,6 +66,49 @@ jobs:
         run: |
           kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Install NGINX Ingress Controller
+        run: |
+          # Install NGINX Ingress Controller if not already installed
+          if ! kubectl get namespace ingress-nginx &> /dev/null; then
+            helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+            helm repo update
+            helm install ingress-nginx ingress-nginx/ingress-nginx \
+              --create-namespace \
+              --namespace ingress-nginx \
+              --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-health-probe-request-path"=/healthz
+            echo "Waiting for ingress controller to be ready..."
+            kubectl wait --namespace ingress-nginx \
+              --for=condition=ready pod \
+              --selector=app.kubernetes.io/component=controller \
+              --timeout=300s
+          else
+            echo "NGINX Ingress Controller already installed"
+          fi
+
+      - name: Install cert-manager
+        run: |
+          # Install cert-manager if not already installed
+          if ! kubectl get namespace cert-manager &> /dev/null; then
+            kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.3/cert-manager.yaml
+            echo "Waiting for cert-manager to be ready..."
+            kubectl wait --for=condition=Available --timeout=300s -n cert-manager deployment/cert-manager
+            kubectl wait --for=condition=Available --timeout=300s -n cert-manager deployment/cert-manager-webhook
+            kubectl wait --for=condition=Available --timeout=300s -n cert-manager deployment/cert-manager-cainjector
+          else
+            echo "cert-manager already installed"
+          fi
+
+      - name: Create self-signed ClusterIssuer
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: selfsigned-issuer
+          spec:
+            selfSigned: {}
+          EOF
+
       - name: Create image pull secret
         run: |
           kubectl create secret docker-registry acr-secret \
@@ -89,10 +133,6 @@ jobs:
             --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
             --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
             --set image.pullPolicy=Always \
-            --set ingress.enabled=true \
-            --set ingress.hosts[0].host=dev-api-${{ vars.DOMAIN_NAME }} \
-            --set ingress.hosts[0].paths[0].path=/ \
-            --set ingress.hosts[0].paths[0].pathType=Prefix \
             --set env[0].name=SPRING_PROFILES_ACTIVE \
             --set env[0].value=dev \
             --set env[1].name=AZURE_CLIENT_ID \
@@ -104,23 +144,42 @@ jobs:
             --wait \
             --timeout 5m
 
+      - name: Get Backend Ingress IP
+        id: backend-ingress
+        run: |
+          # Wait for backend ingress to get IP
+          echo "Waiting for backend ingress IP..."
+          for i in {1..30}; do
+            BACKEND_IP=$(kubectl get ingress backend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$BACKEND_IP" ]; then
+              echo "Backend Ingress IP: $BACKEND_IP"
+              echo "backend_ip=$BACKEND_IP" >> $GITHUB_OUTPUT
+              break
+            fi
+            echo "Waiting for ingress IP... ($i/30)"
+            sleep 10
+          done
+          if [ -z "$BACKEND_IP" ]; then
+            echo "Warning: Backend ingress IP not available yet, using service name"
+            echo "backend_ip=backend.dev.svc.cluster.local" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy Frontend with Helm
         run: |
+          # Use backend ingress IP for API URL
+          BACKEND_URL="https://${{ steps.backend-ingress.outputs.backend_ip }}"
+
           helm upgrade --install frontend ./charts/frontend \
             --namespace dev \
             --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-frontend \
             --set image.tag=${{ github.event.inputs.frontend_tag || 'latest' }} \
             --set image.pullPolicy=Always \
-            --set ingress.enabled=true \
-            --set ingress.hosts[0].host=dev-${{ vars.DOMAIN_NAME }} \
-            --set ingress.hosts[0].paths[0].path=/ \
-            --set ingress.hosts[0].paths[0].pathType=Prefix \
             --set env[0].name=REACT_APP_CLIENT_ID \
             --set env[0].value=${{ secrets.REACT_APP_CLIENT_ID }} \
             --set env[1].name=REACT_APP_TENANT_ID \
             --set env[1].value=${{ secrets.ARM_TENANT_ID }} \
             --set env[2].name=REACT_APP_API_URL \
-            --set env[2].value=https://dev-api-${{ vars.DOMAIN_NAME }} \
+            --set env[2].value="$BACKEND_URL" \
             --set env[3].name=REACT_APP_API_SCOPE \
             --set env[3].value=api://${{ secrets.BACKEND_CLIENT_ID }}/access_as_user \
             --wait \
@@ -155,21 +214,36 @@ jobs:
       - name: Get deployment status
         if: always()
         run: |
-          echo "## Deployment Status - Dev" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployment Status - Dev Environment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get Ingress IPs
+          FRONTEND_IP=$(kubectl get ingress frontend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
+          BACKEND_IP=$(kubectl get ingress backend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
+
+          echo "### Access URLs (HTTPS with Self-Signed Certificates)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend**: https://$FRONTEND_IP" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend API**: https://$BACKEND_IP" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Health**: https://$BACKEND_IP/actuator/health" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note**: HTTPS uses self-signed certificates. Accept the certificate warning in your browser." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### Pods" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           kubectl get pods -n dev >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Services" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          kubectl get svc -n dev >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Ingress" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Ingress (IP-based with TLS)" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           kubectl get ingress -n dev >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Certificates" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get certificates -n dev 2>/dev/null || echo "No certificates found"
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   deploy-to-stage:
