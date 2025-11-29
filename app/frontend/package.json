@@ -1,7 +1,7 @@
 {
   "name": "aks-starter-frontend",
   "version": "1.0.0",
-  "description": "React SPA with Azure Entra SSO - AKS Starter Kit (IP-based HTTPS with Helm)",
+  "description": "React SPA with Azure Entra SSO - AKS Starter Kit (IP-based HTTPS deployment)",
   "private": true,
   "scripts": {
     "start": "react-scripts start",
