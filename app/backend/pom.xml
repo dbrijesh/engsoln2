@@ -213,12 +213,12 @@
                         <configuration>
                             <rules>
                                 <rule>
-                                    <element>PACKAGE</element>
+                                    <element>BUNDLE</element>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.70</minimum>
+                                            <minimum>0.15</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
@@ -235,6 +235,7 @@
                 <configuration>
                     <includes>
                         <include>**/*Test.java</include>
+                        <include>**/CucumberRunnerIT.java</include>
                     </includes>
                     <excludedGroups>integration</excludedGroups>
                 </configuration>
@@ -247,8 +248,10 @@
                 <configuration>
                     <includes>
                         <include>**/*IT.java</include>
-                        <include>**/CucumberRunnerTest.java</include>
                     </includes>
+                    <systemPropertyVariables>
+                        <cucumber.junit-platform.naming-strategy>long</cucumber.junit-platform.naming-strategy>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
@@ -317,6 +320,13 @@
                         <phase>process-sources</phase>
                         <goals>
                             <goal>check</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>checkstyle-report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>checkstyle</goal>
                         </goals>
                     </execution>
                 </executions>

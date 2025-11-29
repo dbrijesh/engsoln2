@@ -73,4 +73,9 @@ public class HelloApiSteps {
   public void theResponseShouldBe(String expectedBody) {
     assertEquals(expectedBody, response.getBody().asString());
   }
+
+  @Then("the response should contain a user field")
+  public void theResponseShouldContainAUserField() {
+    response.then().body("user", notNullValue());
+  }
 }

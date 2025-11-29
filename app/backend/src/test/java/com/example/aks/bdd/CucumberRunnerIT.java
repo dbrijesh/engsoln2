@@ -14,4 +14,4 @@ import org.junit.platform.suite.api.*;
     key = PLUGIN_PROPERTY_NAME,
     value =
         "pretty, html:target/cucumber-reports/cucumber.html, json:target/cucumber-reports/cucumber.json")
-public class CucumberRunnerTest {}
+public class CucumberRunnerIT {}
