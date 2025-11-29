@@ -13,8 +13,8 @@ RUN mvn dependency:go-offline -B || echo "Dependency pre-download failed, will d
 # Copy source code
 COPY src ./src
 
-# Build the application (skip tests for Docker build - tests run in CI)
-RUN mvn clean package -DskipTests
+# Build the application (skip tests and quality checks - they run in CI)
+RUN mvn clean package -DskipTests -Dcheckstyle.skip=true -Dspotless.apply.skip=true
 
 # Stage 2: Create runtime image
 FROM eclipse-temurin:17-jre-alpine
