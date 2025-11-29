@@ -1,9 +1,14 @@
+// Helper to get env variable from window._env_ (runtime) or process.env (build-time)
+const getEnv = (key) => {
+  return (window._env_ && window._env_[key]) || process.env[key];
+};
+
 // MSAL configuration for Azure Entra authentication
 export const msalConfig = {
   auth: {
-    clientId: process.env.REACT_APP_CLIENT_ID || 'YOUR_CLIENT_ID',
-    authority: process.env.REACT_APP_AUTHORITY || 'https://login.microsoftonline.com/YOUR_TENANT_ID',
-    redirectUri: process.env.REACT_APP_REDIRECT_URI || window.location.origin,
+    clientId: getEnv('REACT_APP_CLIENT_ID') || 'YOUR_CLIENT_ID',
+    authority: `https://login.microsoftonline.com/${getEnv('REACT_APP_TENANT_ID') || 'YOUR_TENANT_ID'}`,
+    redirectUri: window.location.origin,
     postLogoutRedirectUri: window.location.origin,
   },
   cache: {
@@ -42,7 +47,7 @@ export const loginRequest = {
 
 export const apiRequest = {
   scopes: [
-    process.env.REACT_APP_API_SCOPE || 'api://YOUR_API_CLIENT_ID/access_as_user',
+    getEnv('REACT_APP_API_SCOPE') || 'api://YOUR_API_CLIENT_ID/access_as_user',
   ],
 };
 
@@ -53,5 +58,5 @@ export const graphConfig = {
 
 // Backend API endpoint
 export const apiConfig = {
-  apiEndpoint: process.env.REACT_APP_API_URL || 'http://localhost:8080/api',
+  apiEndpoint: getEnv('REACT_APP_API_URL') || 'http://localhost:8080/api',
 };

@@ -25,6 +25,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Copy built application from build stage
 COPY --from=build /app/build /usr/share/nginx/html
 
+# Copy runtime env script
+COPY env.sh /docker-entrypoint.d/env.sh
+RUN chmod +x /docker-entrypoint.d/env.sh
+
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:80/health || exit 1
@@ -35,5 +39,5 @@ RUN echo '{"status":"healthy"}' > /usr/share/nginx/html/health
 # Expose port
 EXPOSE 80
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start with env script
+CMD ["/docker-entrypoint.d/env.sh"]
