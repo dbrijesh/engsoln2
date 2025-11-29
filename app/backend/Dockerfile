@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy POM file
 COPY pom.xml .
 
-# Download dependencies (cached layer)
-RUN mvn dependency:go-offline -B
+# Download dependencies (cached layer) - non-fatal if Maven Central is unavailable
+RUN mvn dependency:go-offline -B || echo "Dependency pre-download failed, will download during build"
 
 # Copy source code
 COPY src ./src
