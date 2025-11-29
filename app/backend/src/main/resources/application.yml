@@ -1,5 +1,5 @@
 # Spring Boot application configuration
-# Updated: IP-based HTTPS deployment with self-signed certificates
+# Updated: IP-based HTTPS deployment with Helm and self-signed certificates
 spring:
   application:
     name: aks-starter-backend
