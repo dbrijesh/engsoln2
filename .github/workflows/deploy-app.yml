@@ -130,24 +130,18 @@ jobs:
           kubectl apply -f k8s/dev/backend-service.yaml
 
       - name: Deploy Backend Ingress
-        run: |
-          # Deploy backend ingress without IP (will be assigned by LoadBalancer)
-          kubectl apply -f k8s/dev/backend-ingress.yaml
-
-      - name: Get Backend Ingress IP
         id: backend-ingress
         run: |
-          # Wait for backend ingress to get IP
+          # Deploy backend ingress (works with IP-based access, no host required)
+          kubectl apply -f k8s/dev/backend-ingress.yaml
+
+          # Wait for ingress to get external IP from LoadBalancer
           echo "Waiting for backend ingress IP..."
           for i in {1..30}; do
             BACKEND_IP=$(kubectl get ingress backend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
             if [ -n "$BACKEND_IP" ]; then
               echo "Backend Ingress IP: $BACKEND_IP"
               echo "backend_ip=$BACKEND_IP" >> $GITHUB_OUTPUT
-
-              # Update backend ingress with actual IP
-              export BACKEND_IP="$BACKEND_IP"
-              envsubst < k8s/dev/backend-ingress.yaml | kubectl apply -f -
               break
             fi
             echo "Waiting for ingress IP... ($i/30)"
@@ -167,7 +161,6 @@ jobs:
           export REACT_APP_TENANT_ID="${{ secrets.ARM_TENANT_ID }}"
           export REACT_APP_API_URL="https://${{ steps.backend-ingress.outputs.backend_ip }}"
           export REACT_APP_API_SCOPE="api://${{ secrets.BACKEND_CLIENT_ID }}/access_as_user"
-          export FRONTEND_IP="frontend-ip-placeholder"
 
           # Apply frontend deployment and service
           envsubst < k8s/dev/frontend-deployment.yaml | kubectl apply -f -
@@ -175,17 +168,15 @@ jobs:
 
       - name: Deploy Frontend Ingress
         run: |
-          # Deploy frontend ingress
+          # Deploy frontend ingress (works with IP-based access, no host required)
           kubectl apply -f k8s/dev/frontend-ingress.yaml
 
-          # Wait for frontend ingress IP and update
+          # Wait for frontend ingress IP
           echo "Waiting for frontend ingress IP..."
           for i in {1..30}; do
             FRONTEND_IP=$(kubectl get ingress frontend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
             if [ -n "$FRONTEND_IP" ]; then
               echo "Frontend Ingress IP: $FRONTEND_IP"
-              export FRONTEND_IP="$FRONTEND_IP"
-              envsubst < k8s/dev/frontend-ingress.yaml | kubectl apply -f -
               break
             fi
             echo "Waiting for ingress IP... ($i/30)"

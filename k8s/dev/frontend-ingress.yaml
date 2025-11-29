@@ -5,16 +5,13 @@ metadata:
   namespace: dev
   annotations:
     cert-manager.io/cluster-issuer: selfsigned-issuer
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
 spec:
   ingressClassName: nginx
   tls:
-    - hosts:
-        - ${FRONTEND_IP}
-      secretName: frontend-tls
+    - secretName: frontend-tls
   rules:
-    - host: ${FRONTEND_IP}
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix
