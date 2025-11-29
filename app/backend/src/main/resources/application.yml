@@ -1,4 +1,5 @@
 # Spring Boot application configuration
+# Updated: Build pipeline fixes applied
 spring:
   application:
     name: aks-starter-backend
