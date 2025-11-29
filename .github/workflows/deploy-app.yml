@@ -128,16 +128,29 @@ jobs:
 
       - name: Deploy Backend with Helm
         run: |
+          # Create temporary values file for environment variables
+          cat > /tmp/backend-values.yaml <<EOF
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: dev
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-ad-credentials
+                  key: client-id
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-ad-credentials
+                  key: tenant-id
+          EOF
+
           helm upgrade --install backend ./charts/backend \
             --namespace dev \
             --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
             --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
             --set image.pullPolicy=Always \
-            --set-json 'env=[
-              {"name":"SPRING_PROFILES_ACTIVE","value":"dev"},
-              {"name":"AZURE_CLIENT_ID","valueFrom":{"secretKeyRef":{"name":"azure-ad-credentials","key":"client-id"}}},
-              {"name":"AZURE_TENANT_ID","valueFrom":{"secretKeyRef":{"name":"azure-ad-credentials","key":"tenant-id"}}}
-            ]' \
+            -f /tmp/backend-values.yaml \
             --wait \
             --timeout 5m
 
