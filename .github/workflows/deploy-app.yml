@@ -133,14 +133,11 @@ jobs:
             --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
             --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
             --set image.pullPolicy=Always \
-            --set env[0].name=SPRING_PROFILES_ACTIVE \
-            --set env[0].value=dev \
-            --set env[1].name=AZURE_CLIENT_ID \
-            --set env[1].valueFrom.secretKeyRef.name=azure-ad-credentials \
-            --set env[1].valueFrom.secretKeyRef.key=client-id \
-            --set env[2].name=AZURE_TENANT_ID \
-            --set env[2].valueFrom.secretKeyRef.name=azure-ad-credentials \
-            --set env[2].valueFrom.secretKeyRef.key=tenant-id \
+            --set-json 'env=[
+              {"name":"SPRING_PROFILES_ACTIVE","value":"dev"},
+              {"name":"AZURE_CLIENT_ID","valueFrom":{"secretKeyRef":{"name":"azure-ad-credentials","key":"client-id"}}},
+              {"name":"AZURE_TENANT_ID","valueFrom":{"secretKeyRef":{"name":"azure-ad-credentials","key":"tenant-id"}}}
+            ]' \
             --wait \
             --timeout 5m
 
