@@ -129,27 +129,27 @@ jobs:
           envsubst < k8s/dev/backend-deployment.yaml | kubectl apply -f -
           kubectl apply -f k8s/dev/backend-service.yaml
 
-      - name: Deploy Backend Ingress
-        id: backend-ingress
+      - name: Deploy Combined Ingress
+        id: app-ingress
         run: |
-          # Deploy backend ingress (works with IP-based access, no host required)
-          kubectl apply -f k8s/dev/backend-ingress.yaml
+          # Deploy combined ingress for both frontend and backend
+          kubectl apply -f k8s/dev/app-ingress.yaml
 
           # Wait for ingress to get external IP from LoadBalancer
-          echo "Waiting for backend ingress IP..."
+          echo "Waiting for app ingress IP..."
           for i in {1..30}; do
-            BACKEND_IP=$(kubectl get ingress backend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$BACKEND_IP" ]; then
-              echo "Backend Ingress IP: $BACKEND_IP"
-              echo "backend_ip=$BACKEND_IP" >> $GITHUB_OUTPUT
+            APP_IP=$(kubectl get ingress app-ingress -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$APP_IP" ]; then
+              echo "App Ingress IP: $APP_IP"
+              echo "app_ip=$APP_IP" >> $GITHUB_OUTPUT
               break
             fi
             echo "Waiting for ingress IP... ($i/30)"
             sleep 10
           done
-          if [ -z "$BACKEND_IP" ]; then
-            echo "Warning: Backend ingress IP not available yet, using service name"
-            echo "backend_ip=backend.dev.svc.cluster.local" >> $GITHUB_OUTPUT
+          if [ -z "$APP_IP" ]; then
+            echo "Warning: App ingress IP not available yet"
+            echo "app_ip=pending" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Frontend
@@ -159,29 +159,12 @@ jobs:
           export IMAGE_TAG="${{ github.event.inputs.frontend_tag || 'latest' }}"
           export REACT_APP_CLIENT_ID="${{ secrets.REACT_APP_CLIENT_ID }}"
           export REACT_APP_TENANT_ID="${{ secrets.ARM_TENANT_ID }}"
-          export REACT_APP_API_URL="https://${{ steps.backend-ingress.outputs.backend_ip }}"
+          export REACT_APP_API_URL="https://${{ steps.app-ingress.outputs.app_ip }}/api"
           export REACT_APP_API_SCOPE="api://${{ secrets.BACKEND_CLIENT_ID }}/access_as_user"
 
           # Apply frontend deployment and service
           envsubst < k8s/dev/frontend-deployment.yaml | kubectl apply -f -
           kubectl apply -f k8s/dev/frontend-service.yaml
-
-      - name: Deploy Frontend Ingress
-        run: |
-          # Deploy frontend ingress (works with IP-based access, no host required)
-          kubectl apply -f k8s/dev/frontend-ingress.yaml
-
-          # Wait for frontend ingress IP
-          echo "Waiting for frontend ingress IP..."
-          for i in {1..30}; do
-            FRONTEND_IP=$(kubectl get ingress frontend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$FRONTEND_IP" ]; then
-              echo "Frontend Ingress IP: $FRONTEND_IP"
-              break
-            fi
-            echo "Waiting for ingress IP... ($i/30)"
-            sleep 10
-          done
 
       - name: Wait for rollout
         run: |
@@ -215,14 +198,13 @@ jobs:
           echo "## Deployment Status - Dev Environment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Get Ingress IPs
-          FRONTEND_IP=$(kubectl get ingress frontend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
-          BACKEND_IP=$(kubectl get ingress backend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
+          # Get Ingress IP
+          APP_IP=$(kubectl get ingress app-ingress -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
 
           echo "### Access URLs (HTTPS with Self-Signed Certificates)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend**: https://$FRONTEND_IP" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend API**: https://$BACKEND_IP" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend Health**: https://$BACKEND_IP/actuator/health" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend**: https://$APP_IP/" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend API**: https://$APP_IP/api" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Health**: https://$APP_IP/api/actuator/health" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> **Note**: HTTPS uses self-signed certificates. Accept the certificate warning in your browser." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
