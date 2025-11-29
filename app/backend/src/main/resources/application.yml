@@ -1,5 +1,5 @@
 # Spring Boot application configuration
-# Updated: IP-based HTTPS deployment with Helm and proper environment variable handling
+# Updated: IP-based HTTPS deployment with Helm (using sed-based heredoc approach)
 spring:
   application:
     name: aks-starter-backend
