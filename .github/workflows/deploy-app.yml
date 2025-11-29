@@ -27,9 +27,6 @@ on:
         required: false
         default: 'latest'
 
-env:
-  HELM_VERSION: 'v3.13.0'
-
 jobs:
   deploy-to-dev:
     name: Deploy to Dev
@@ -56,11 +53,6 @@ jobs:
             --resource-group ${{ vars.AKS_RESOURCE_GROUP_DEV }} \
             --name ${{ vars.AKS_CLUSTER_NAME_DEV }} \
             --overwrite-existing
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: ${{ env.HELM_VERSION }}
 
       - name: Create namespace if not exists
         run: |
@@ -126,33 +118,21 @@ jobs:
             --namespace dev \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy Backend with Helm
+      - name: Deploy Backend
         run: |
-          # Create temporary values file for environment variables
-          cat <<'EOF' | sed 's/^          //' > /tmp/backend-values.yaml
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: dev
-            - name: AZURE_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: azure-ad-credentials
-                  key: client-id
-            - name: AZURE_TENANT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: azure-ad-credentials
-                  key: tenant-id
-          EOF
+          # Set environment variables for manifest substitution
+          export ACR_LOGIN_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
+          export IMAGE_TAG="${{ github.event.inputs.backend_tag || 'latest' }}"
+          export BACKEND_IP="backend-ip-placeholder"
 
-          helm upgrade --install backend ./charts/backend \
-            --namespace dev \
-            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-backend \
-            --set image.tag=${{ github.event.inputs.backend_tag || 'latest' }} \
-            --set image.pullPolicy=Always \
-            -f /tmp/backend-values.yaml \
-            --wait \
-            --timeout 5m
+          # Apply backend deployment and service (no IP substitution needed)
+          envsubst < k8s/dev/backend-deployment.yaml | kubectl apply -f -
+          kubectl apply -f k8s/dev/backend-service.yaml
+
+      - name: Deploy Backend Ingress
+        run: |
+          # Deploy backend ingress without IP (will be assigned by LoadBalancer)
+          kubectl apply -f k8s/dev/backend-ingress.yaml
 
       - name: Get Backend Ingress IP
         id: backend-ingress
@@ -164,6 +144,10 @@ jobs:
             if [ -n "$BACKEND_IP" ]; then
               echo "Backend Ingress IP: $BACKEND_IP"
               echo "backend_ip=$BACKEND_IP" >> $GITHUB_OUTPUT
+
+              # Update backend ingress with actual IP
+              export BACKEND_IP="$BACKEND_IP"
+              envsubst < k8s/dev/backend-ingress.yaml | kubectl apply -f -
               break
             fi
             echo "Waiting for ingress IP... ($i/30)"
@@ -174,26 +158,39 @@ jobs:
             echo "backend_ip=backend.dev.svc.cluster.local" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy Frontend with Helm
+      - name: Deploy Frontend
         run: |
-          # Use backend ingress IP for API URL
-          BACKEND_URL="https://${{ steps.backend-ingress.outputs.backend_ip }}"
+          # Set environment variables for manifest substitution
+          export ACR_LOGIN_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
+          export IMAGE_TAG="${{ github.event.inputs.frontend_tag || 'latest' }}"
+          export REACT_APP_CLIENT_ID="${{ secrets.REACT_APP_CLIENT_ID }}"
+          export REACT_APP_TENANT_ID="${{ secrets.ARM_TENANT_ID }}"
+          export REACT_APP_API_URL="https://${{ steps.backend-ingress.outputs.backend_ip }}"
+          export REACT_APP_API_SCOPE="api://${{ secrets.BACKEND_CLIENT_ID }}/access_as_user"
+          export FRONTEND_IP="frontend-ip-placeholder"
 
-          helm upgrade --install frontend ./charts/frontend \
-            --namespace dev \
-            --set image.repository=${{ secrets.ACR_LOGIN_SERVER }}/aks-starter-frontend \
-            --set image.tag=${{ github.event.inputs.frontend_tag || 'latest' }} \
-            --set image.pullPolicy=Always \
-            --set env[0].name=REACT_APP_CLIENT_ID \
-            --set env[0].value=${{ secrets.REACT_APP_CLIENT_ID }} \
-            --set env[1].name=REACT_APP_TENANT_ID \
-            --set env[1].value=${{ secrets.ARM_TENANT_ID }} \
-            --set env[2].name=REACT_APP_API_URL \
-            --set env[2].value="$BACKEND_URL" \
-            --set env[3].name=REACT_APP_API_SCOPE \
-            --set env[3].value=api://${{ secrets.BACKEND_CLIENT_ID }}/access_as_user \
-            --wait \
-            --timeout 5m
+          # Apply frontend deployment and service
+          envsubst < k8s/dev/frontend-deployment.yaml | kubectl apply -f -
+          kubectl apply -f k8s/dev/frontend-service.yaml
+
+      - name: Deploy Frontend Ingress
+        run: |
+          # Deploy frontend ingress
+          kubectl apply -f k8s/dev/frontend-ingress.yaml
+
+          # Wait for frontend ingress IP and update
+          echo "Waiting for frontend ingress IP..."
+          for i in {1..30}; do
+            FRONTEND_IP=$(kubectl get ingress frontend -n dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$FRONTEND_IP" ]; then
+              echo "Frontend Ingress IP: $FRONTEND_IP"
+              export FRONTEND_IP="$FRONTEND_IP"
+              envsubst < k8s/dev/frontend-ingress.yaml | kubectl apply -f -
+              break
+            fi
+            echo "Waiting for ingress IP... ($i/30)"
+            sleep 10
+          done
 
       - name: Wait for rollout
         run: |
@@ -281,11 +278,6 @@ jobs:
             --name ${{ vars.AKS_CLUSTER_NAME_STAGE }} \
             --overwrite-existing
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: ${{ env.HELM_VERSION }}
-
       - name: Create namespace if not exists
         run: |
           kubectl create namespace stage --dry-run=client -o yaml | kubectl apply -f -
@@ -360,11 +352,6 @@ jobs:
             --resource-group ${{ vars.AKS_RESOURCE_GROUP_PROD }} \
             --name ${{ vars.AKS_CLUSTER_NAME_PROD }} \
             --overwrite-existing
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: ${{ env.HELM_VERSION }}
 
       - name: Create namespace if not exists
         run: |
