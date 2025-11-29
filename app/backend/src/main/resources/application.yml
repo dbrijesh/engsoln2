@@ -1,5 +1,5 @@
 # Spring Boot application configuration
-# Updated: IP-based HTTPS deployment with Helm (using sed-based heredoc approach)
+# Updated: IP-based HTTPS deployment with kubectl and plain Kubernetes manifests
 spring:
   application:
     name: aks-starter-backend
