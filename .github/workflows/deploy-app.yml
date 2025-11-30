@@ -113,7 +113,7 @@ jobs:
       - name: Create Azure AD secrets
         run: |
           kubectl create secret generic azure-ad-credentials \
-            --from-literal=client-id=${{ secrets.BACKEND_CLIENT_ID }} \
+            --from-literal=client-id=api://${{ secrets.BACKEND_CLIENT_ID }} \
             --from-literal=tenant-id=${{ secrets.ARM_TENANT_ID }} \
             --namespace dev \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -267,7 +267,7 @@ jobs:
       - name: Create Azure AD secrets
         run: |
           kubectl create secret generic azure-ad-credentials \
-            --from-literal=client-id=${{ secrets.BACKEND_CLIENT_ID }} \
+            --from-literal=client-id=api://${{ secrets.BACKEND_CLIENT_ID }} \
             --from-literal=tenant-id=${{ secrets.ARM_TENANT_ID }} \
             --namespace stage \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -342,7 +342,7 @@ jobs:
       - name: Create Azure AD secrets
         run: |
           kubectl create secret generic azure-ad-credentials \
-            --from-literal=client-id=${{ secrets.BACKEND_CLIENT_ID }} \
+            --from-literal=client-id=api://${{ secrets.BACKEND_CLIENT_ID }} \
             --from-literal=tenant-id=${{ secrets.ARM_TENANT_ID }} \
             --namespace prod \
             --dry-run=client -o yaml | kubectl apply -f -

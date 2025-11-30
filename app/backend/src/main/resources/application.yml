@@ -11,7 +11,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${AZURE_AD_ISSUER_URI:https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0}
+          issuer-uri: ${AZURE_AD_ISSUER_URI:https://sts.windows.net/${AZURE_TENANT_ID}/}
           audiences: ${AZURE_CLIENT_ID:}
 
   # Database (H2 for demo)

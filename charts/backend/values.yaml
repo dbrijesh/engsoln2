@@ -113,15 +113,15 @@ env:
   - name: AZURE_TENANT_ID
     valueFrom:
       secretKeyRef:
-        name: backend-secrets
+        name: azure-ad-credentials
         key: tenant-id
   - name: AZURE_CLIENT_ID
     valueFrom:
       secretKeyRef:
-        name: backend-secrets
+        name: azure-ad-credentials
         key: client-id
   - name: AZURE_AD_ISSUER_URI
-    value: "https://login.microsoftonline.com/$(AZURE_TENANT_ID)/v2.0"
+    value: "https://sts.windows.net/$(AZURE_TENANT_ID)/"
   - name: CORS_ALLOWED_ORIGINS
     value: "https://frontend.example.com"
 
